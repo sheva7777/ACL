@@ -1,0 +1,523 @@
+1	规则的匹配顺序和显示顺序
+ACL规则的匹配顺序由显示顺序决定。用户在创建ACL时，可配置match order来决定显示顺序。
+	如果是config顺序(默认不配置match order就是config)，按照用户配置来。目前ACL4和ACL6实现不一致，ACL4还会按用户输入的规则号来排序，ACL6则没有按用户输入的规则号排序）；
+	如果是auto形式，由系统自动深度优先搜索最精确的自动排序。ACL4和ACL6相同的是都会将最精确匹配的放在最前面显示。但规则编号也有区别，ACL4不允许输入规则号，完全根据用户设定的ACL步长step来由系统自动分配规则号，ACL4默认步长是5，ACL6无步长命令设定，不限制用户输入规则号，也不会按规则号排序，只按最精确匹配的放在最前面显示。
+举例：
+ACL4的config形式
+[CBB-PE1]acl 3000 match-order config
+[CBB-PE1-acl-adv-3000]rul 5 permit igmp                                         
+[CBB-PE1-acl-adv-3000]rul 1 permit ospf                                                                       
+[CBB-PE1-acl-adv-3000]rul 9 permit igmp source 1.1.1.1 0                        
+[CBB-PE1-acl-adv-3000]dis th                                                    
+#                                                                               
+acl number 3000                                                                 
+ rule 1 permit ospf                                                             
+ rule 5 permit igmp                                                             
+ rule 9 permit igmp source 1.1.1.1 0                                            
+#                                                                               
+return  
+
+ACL6的config形式
+[CBB-PE1]acl ipv6 3000 match-order config                                                                                                                    
+[CBB-PE1-acl6-adv-3000]rule 5 permit ipv6                                                                              
+[CBB-PE1-acl6-adv-3000]rule 1 permit ospf                                              
+[CBB-PE1-acl6-adv-3000]rule 9 permit ipv6 source 1:1::1:1 28                    
+[CBB-PE1-acl6-adv-3000]dis th                                                   
+#                                                                               
+ acl ipv6 number 3000                                                           
+ rule 5 permit ipv6                                                             
+ rule 1 permit ospf                                                             
+ rule 9 permit ipv6 source 1:1::1:1/28                                          
+#                                                                               
+return   
+
+ACL4的auto形式
+[CBB-PE1]acl 3999 match-order auto                                                                                            
+[CBB-PE1-acl-adv-3999]rule 1 permit ip                                            
+Error: The ACL's match-order is auto, so can not specify a rule ID.             
+[CBB-PE1-acl-adv-3999]rule ?                                                     
+  INTEGER<0-4294967294>  ID of acl rule                                         
+  deny                   Specify matched packet deny                            
+  permit                 Specify matched packet permit                          
+                                                                                
+[CBB-PE1-acl-adv-3999]rul permit ip                                           
+[CBB-PE1-acl-adv-3999]rule permit ospf                                                                                                                                                                      
+[CBB-PE1-acl-adv-3999]rule permit ip source 1.1.1.1 0                         
+[CBB-PE1-acl-adv-3999]dis th                                                    
+#                                                                               
+acl number 3999 match-order auto                                                
+rule 5 permit ospf
+ rule 10 permit ip source 1.1.1.1 0
+ rule 15 permit ip                                                           
+#                                                                               
+return         
+
+ACL6的auto形式
+[CBB-PE1]acl ipv6 3999 match-order auto
+[CBB-PE1-acl6-adv-3999]rule 5 permit ipv6
+[CBB-PE1-acl6-adv-3999]rule 1 permit ospf	
+[CBB-PE1-acl6-adv-3999]rule 9 permit ipv6 source 1:1::1:1 28
+[CBB-PE1-acl6-adv-3999]dis th
+#
+ acl ipv6 number 3999 match-order auto
+ rule 1 permit ospf
+ rule 9 permit ipv6 source 1:1::1:1/28
+ rule 5 permit ipv6
+#
+Return
+
+2	规则不匹配的情况
+先了解一下ACL规则的匹配：rule [ permit | deny ] xx
+1、能找到对应的rule规则，我们称匹配上。能匹配上的就返回rule的action，即permit或deny；
+2、查找所有的规则都不匹配（三种情况: 无acl、有acl 但无规则、有acl有规则但都不匹配）
+根据调用的接口不同返回值也不同(ACL_NOTFOUND 或ACL_RULE_NOTFOUND)。
+
+ACL4匹配接口（NameACL4的过滤接口也是适配后，调用ACL_PacketFilterWithParamEx和ACL_PacketFilterWithParam）
+ACL_PacketFilterWithParamEx－》ACL_HaveItEx，返回值是:
+1、无acl时，返回ACL_NOTFOUND
+2、有acl 无规则时，返回ACL_RULE_NOTFOUND;
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL_DENY。
+
+ACL_PacketFilterWithParam－》ACL_HaveIt，返回值是：
+1、无acl时，返回ACL_NOTFOUND
+2、有acl 无规则时，返回ACL_NOTFOUND
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL_NOTFOUND。
+
+ACL6匹配接口（NameACL6的过滤接口也是适配后，调用ACLIPv6_PacketFilterWithParamByNum_Ex和ACLIPv6_PacketFilterWithParamByNum）
+ACLIPv6_PacketFilterWithParamByNum_Ex－》ACLIPv6_HaveIt_Ex
+1、无acl时，返回ACL6_NOTFOUND
+2、有acl 无规则时，返回ACL6_NORULE;
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL6_RULE_NOTFOUND。
+
+ACLIPv6_PacketFilterWithParamByNum－》ACLIPv6_HaveIt
+1、无acl时，返回ACL6_NOTFOUND
+2、有acl 无规则时，返回ACL6_NOTFOUND;
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL6_RULE_NOTFOUND。
+
+3	规则匹配中的特殊值
+3.1	ACL4匹配规则
+忽略用户在设备上输入的某个匹配项：不管用户在设备上某一项配置的是什么，都忽略检查，即只要规则能匹配上其他的选项，就算匹配该规则，这时给接口传参数-1。
+
+匹配该项用户是否输入：例如有些匹配选项不希望用户输入，如果输入则希望不匹配该规则，这时给接口传参数0（即希望在下面的代码中返回notfound）。
+特殊情况：当参数传0时，如果用户在设备上配置的p->stSIP=0;就还是会匹配上的。
+举例：rule 8 permit ip source 0.0.0.0 255.255.0.0
+
+
+匹配规则:参数和用户输入mask的非 进行与操作（p是设备上用户的输入，pInfo是参数传入值）
+ 
+
+3.2	ACL6匹配规则
+忽略用户在设备上输入的某个匹配项：不管用户这一项配置的是什么，都忽略检查，即只要规则能匹配上其他的，就算匹配该规则，这时给接口传参数0。
+匹配该项用户是否输入：例如有些匹配选项不希望用户输入，如果输入则希望不匹配该规则，这时给接口传参数-1。
+特殊情况：当参数传-1，如果用户在设备上配置的pstNode->stSIP.ipv6Addr=-1;就还是会匹配上的。
+举例：rule permit ipv6 source FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF:FFFF/128
+
+匹配规则:参数和用户输入mask进行与操作（pstNode是设备上用户的输入，pstInfo是参数传入值,goto end即不匹配该规则，查找下一个规则）
+ 
+
+3.3	特殊值Any
+说明：
+	Any取决于用户在设备上的配置中是否有any，用户配置中有any项，可以匹配；用户配置中无any，接口中传any就不匹配
+	acl4和acl6源、目的其中没配的情况 和 配成any是一样的；
+	acl4：any的mask为全F，IP为IPADDRANY＝127.255.255.254。即源、目的掩码配置为255.255.255.255 和 配成any是一样的；
+	acl6：any的掩码长度为0，mask为0，IP为0 (如果掩码长度128 mask为全F)。但用户掩码配置0，命令执行不了，所以不能达到和配成any一样的效果。
+
+[security-used-acl-adv-3000]rul 2 per ip source 1.1.1.1 0
+[security-used-acl-adv-3000]rul 3 per ip source 2.2.2.2 0 destination any
+[security-used-acl-adv-3000]rul 4 deny ip source 3.3.3.3 0 destination  4.4.4.4 255.255.255.255
+[security-used-acl-adv-3000]dis th
+#
+acl number 3000
+ rule 2 permit ip source 1.1.1.1 0
+ rule 3 permit ip source 2.2.2.2 0
+rule 4 deny ip source 3.3.3.3 0
+#
+return
+[security-used-acl6-adv-3000]rul 2 per ipv6 source 2:2::2:2 128 destination any 
+[security-126-acl6-adv-3000]rul 2 per ipv6 source 2:2::2:2 128 destination 3:3::
+3:3 0
+    ^
+Error: Wrong parameter found at '^' position.
+[security-used-acl6-adv-3000]dis th                                             
+#                                                                               
+acl ipv6 number 3000                                                            
+ rule 2 permit ipv6 source 2:2::2:2/128                                         
+#                                                                               
+Return
+
+	用户在设备上没有配置一些匹配选项时，而buffer数据流中携带了。
+ACL4：dscp fragment-type precedence tos都先看设备上是否配了，设备上配了才会比较，设备上没有配置就不比。
+ACL6：fragment precedence tos都先看设备上是否配了，设备上配了才会比较，设备上没有配置就不比（dscp在qos的if-match中有，acl没有做）。
+[security-128-acl-adv-3000]rule per ? 高级ACL必须得选一种协议
+  <1-255>  Protocol number
+  gre      GRE tunneling(47)
+  icmp     Internet Control Message Protocol(1)
+  igmp     Internet Group Management Protocol(2)
+  ip       Any IP protocol
+  ipinip   IP in IP tunneling(4)
+  ospf     OSPF routing protocol(89)
+  tcp      Transmission Control Protocol (6)
+  udp      User Datagram Protocol (17)
+
+[security-128-acl-adv-3000]rule per ip ?
+  destination    Specify destination address
+  dscp           Specify dscp
+  fragment-type  Specify the fragment type of packet
+  precedence     Specify precedence
+  source         Specify source address
+  time-range     Specify a special time
+  tos            Specify tos
+  vpn-instance   Specify a VPN-Instance
+  <cr>                                
+
+Tcp或udp的源端口、目的端口没有配置时，有默认的范围为0~65535，数据流和该范围进行比较。
+[security-128-acl-adv-3000]rule 5 per udp ?
+  destination       Specify destination address
+  destination-port  Specify destination port
+  dscp              Specify dscp
+  fragment-type     Specify the fragment type of packet
+  precedence        Specify precedence
+  source            Specify source address
+  source-port       Specify source port
+  time-range        Specify a special time
+  tos               Specify tos
+  vpn-instance      Specify a VPN-Instance
+  <cr>
+
+
+[security-128-acl6-adv-3000]rule per ? 高级ACL必须得选一种协议
+  <1-255>   Protocol number
+  gre       GRE tunneling(47)
+  icmpv6    Internet Control Message Protocol6(58)
+  ipv6      Any IPV6 protocol
+  ipv6-ah   IPv6-Authentication Header (51)
+  ipv6-esp  IPv6 Encapsulating Security Payload (50)
+  ospf      OSPF routing protocol(89)
+  tcp       Transmission Control Protocol (6)
+  udp       User Datagram Protocol (17)
+
+[security-128-acl6-adv-3000]rule per ipv6 ?
+  destination    Specify destination address
+  fragment       Check fragment packet
+  logging        Log matched packet
+  precedence     Specify precedence
+  source         Specify source address
+  time-range     Specify a special time
+  tos            Specify tos
+  vpn6-instance  Specify a vpn6-instance
+  <cr>
+
+Tcp或udp的源端口、目的端口没有配置时，有默认的范围为0~65535，数据流和该范围进行比较。
+[security-128-acl6-adv-3000]rule per tcp ?
+  destination       Specify destination address
+  destination-port  Specify destination port
+  fragment          Check fragment packet
+  logging           Log matched packet
+  precedence        Specify precedence
+  source            Specify source address
+  source-port       Specify source port
+  time-range        Specify a special time
+  tos               Specify tos
+  vpn6-instance     Specify a vpn6-instance
+  <cr>
+4	高级ACL实现基本ACL功能
+ACL4：只过滤一个源地址，讨论目的地址如何传参
+1、用户只配了源，目的配置成any.
+rule 2 permit ip source 1.1.1.1 0
+在source传入正确时，destination参数传任何给我们,都permit。因为根据用户配置的any决定。
+
+2、用户配了source destination（如上按源过滤，用户错误配置了destination）
+在source传入正确时，destination参数传给我们0，匹配不上，根据接口不同我们会not found 或 deny
+特殊情况:如果用户配置rule 2 permit ip source 1.1.1.1 0 destination 0.0.0.0 xx
+
+原来是基本ACL时，有些业务模块因为本意就是对源进行过滤，切换到NameACL后配置时可能还保留用源过滤。
+但组播原来本意是对组过滤，但原来使用基本ACL，所以切换到NameACL后配置不知道是不是用的组来过滤。
+所以请大家在配置手册中说清楚。
+
+当想实现基本ACL功能时，用户如果出现配置错误，NameACL也只能将匹配结果返回给业务模块（决定结果的因素是用户配置和业务模块传入的参数）。
+业务模块想用这个匹配结果来提示用户，但ACL也不是万能的，能将用户所有的错误配置都能覆盖到，特别是还存在特殊情况。
+例如：只过滤源，但用户配置如下，业务传入正确的source，目的参数为0，我们就能匹配上，但实际业务是希望匹配不上的。
+rule 2 permit ip source 1.1.1.1 0 destination 0.0.0.0 xx
+
+结论: 要实现和基本ACL一样的功能，非特殊情况下，
+ACL4: 假如只过滤源，传参给我们时 source传源，destination传0 
+ACL6：source传源，destination传-1。
+
+
+5	VPN的支持
+ACL_PacketFilterWithParam
+ 
+
+ACL_PacketFilterWithParamEx
+ 
+
+TELNET登录
+1、配置VPN
+[CBB-PE1]ip vpn-instance tt
+[CBB-PE1-vpn-instance-tt]route-distinguisher 1000:1
+[CBB-PE1-vpn-instance-tt]q
+2、接口绑定VPN
+[CBB-PE1]interface GigabitEthernet 1/0/5
+[CBB-PE1-GigabitEthernet1/0/5]ip binding vpn-instance tt
+ All IPv4 related configurations on this interface are removed!
+[CBB-PE1-GigabitEthernet1/0/5]ip a 12.1.1.1 24
+[CBB-PE1-GigabitEthernet1/0/5]dis this
+#
+interface GigabitEthernet1/0/5
+ undo shutdown
+ ip binding vpn-instance tt
+ ip address 12.1.1.1 255.255.255.0
+#
+3、配置acl绑定VPN
+[CBB-PE1]acl 2000
+[CBB-PE1-acl-basic-2000]rule permit vpn-instance tt
+[CBB-PE1-acl-basic-2000]dis this
+#
+acl number 2000
+ rule 5 permit vpn-instance tt
+#
+4、登录时绑定acl
+[CBB-PE1]user-interface vty 0 4
+[CBB-PE1-ui-vty0-4]acl 2000 inbound
+[CBB-PE1-ui-vty0-4]dis this
+#
+user-interface con 0
+ idle-timeout 0 0
+user-interface aux 0
+user-interface vty 0 4
+ acl 2000 inbound
+ authentication-mode none
+ user privilege level 3
+ idle-timeout 0 0
+user-interface vty 16 20
+#
+return      
+
+
+如果ftp登录的接口绑定了VPN，并且ftp登录关联的acl中有配置vpn的话，那么ftp是登录不上去的。  
+就是说ftp登录时，关联的acl不要配置VPN
+
+支持VPN的版本信息:
+VRPV500R005C02B610 和VRPV500R005C02B601之前的版本ACL规则不支持绑定VPN
+VRPV500R005C02B602～VRPV500R005C02B609版本只支持basic ACL 规则绑定VPN   （这个就是灰色版本吧？）
+VRPV500R005C02B620以后的版本ACL规则支持绑定VPN
+
+VRPV500R006C01版本只支持basic ACL 规则绑定VPN
+
+现在V5R6C02的主线上也把3000～3999也放开了,
+已经和产品确认过放开vpn对产品没有影响
+V5R5上Advance ACL（就是3000～3999）的VPN是在B620上放开的。
+
+6	ACL对外过滤接口说明
+ACL_PacketFilterWithParam
+过滤项：源、目的地址和协议号
+返回值：
+1、无acl时，返回ACL_NOTFOUND
+2、有acl 无规则时，返回ACL_NOTFOUND
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL_NOTFOUND。
+
+ACL_PacketFilterWithParamEx
+过滤项：源、目的地址和协议号
+返回值：
+1、无acl时，返回ACL_NOTFOUND
+2、有acl 无规则时，返回ACL_RULE_NOTFOUND;
+3、有acl有规则，但查找所有的规则都未匹配上，返回ACL_DENY。
+
+
+7	和IPOS RM的关系
+
+
+8	和产品的关系
+VOS_RegVrpProductInit
+{
+(VOID)SYS_ProductRegister(PRODUCT_REG_ACL, &stPPIACL);
+(VOID)SYS_ProductRegister(PRODUCT_REG_ACL6, &stAcl6);
+}
+
+VRP_InitializeTask
+{
+SYS_RegAllAppInfo =>注册了acl6组件
+}
+9	CDM
+ 
+
+10	FAQ
+10.1	下面的三条路由在这个策略下匹配的结果应该是什么样的？
+ ipv6 route-static 100:: 64 NULL0    为0100:0000:0000:0000:0000:0000:0000:0000
+ ipv6 route-static 100::1 128 NULL0   为0100:0000:0000:0000:0000:0000:0000:0001
+ ipv6 route-static 200::1 128 NULL0
+
+acl ipv6 name l23 number 44000
+ rule 12 deny ipv6 source 100::/128 为0100:0000:0000:0000:0000:0000:0000:0000，精确匹配128位
+ rule 0 permit ipv6 source 100::/64  前64位为0100:0000:0000:0000,只匹配前64位
+
+答复：
+ACL4使用通配附(即反掩码)匹配，ACL6是直接使用的掩码匹配。
+ ipv6 route-static 100:: 64 NULL0     deny,能匹配上rule 12
+ ipv6 route-static 100::1 128 NULL0   permit,不能匹配上rule 12,但可以匹配上rule 0
+ ipv6 route-static 200::1 128 NULL0   未查找到匹配规则，由业务判断后处理
+当前是config的，是按先匹配rule 12,然后才匹配的rule 0
+
+10.2	问题：按如上方式传参：srcaddr传的是any，desaddr传的是225.0.0.1，返回的是permit？
+acl规则配置是
+rule deny ip source 1.0.0.1 destination 225.0.0.1
+rule permit ip source any destionation 225.0.0.1
+
+ 
+
+结论: Any取决于用户的配置中是否有any，用户配置中有any项，可以匹配；用户配置中无any，接口中传any就不匹配。
+ 
+如果传入的参数是-1，那么，表示忽略这个参数的比较；如果传入的参数是any，则不一定忽略，而是说，如果规则配置的刚好也是any时，两边是相同的，因为any时mask都为0xFFFFFFFF，取反为全0，这时肯定可以匹配，如果配置的规则，假设为rule 1 permit source 225.0.0.1 0，如果传入
+的参数源为any，左边为225.0.0.1，右边为127.255.255.254，匹配不上，返回notfound，就是说传入参数为any的匹配结果还是要看规则的配置。
+
+10.3	基本acl6和高级acl6处理方式不同，导致相同的配置，不同的结果
+[RTA-bgp-af-ipv6]dis th
+#
+ #
+ ipv6-family unicast
+  undo synchronization
+  filter-policy acl6-name global export
+  import-route static
+  peer 11.1.1.2 enable
+  peer 11.1.1.2 label-route-capability
+  peer 20.1.2.2 enable
+#
+return
+[RTA-bgp-af-ipv6]
+[RTA-bgp-af-ipv6]
+[RTA-bgp-af-ipv6]
+[RTA-bgp-af-ipv6]q
+[RTA-bgp]q
+[RTA]ipv
+[RTA]ipv6 rou
+[RTA]ipv6 route-static  b::8 128 n 0----这个为什么能通过rule 8 permit呢？
+[RTA]
+*May 23 2009 10:49:36.420.5 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 8 packet filter result is permit.
+*May 23 2009 10:49:36.420.6 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 8 packet filter result is permit.
+[RTA]dis acl ipv name global
+
+Advanced IPv6 ACL global, 9 rules
+ rule 0 permit ipv6 source A::1/128
+ rule 1 permit ipv6 source A::2/128
+ rule 2 permit ipv6 source A::3/128
+ rule 3 permit ipv6 source A::4/128
+ rule 4 permit ipv6 source A::5/128
+ rule 5 permit ipv6 source A::10/128
+ rule 6 permit ipv6 source 10::/64
+ rule 7 permit ipv6 source 1::/64
+ rule 8 permit ipv6 source 1::/8
+[RTA]ipv6 route-static 2:: 8 n 0----这个为什么能通过rule 0 permit呢？
+[RTA]
+*May 23 2009 10:50:43.610.3 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 0 packet filter result is permit.
+*May 23 2009 10:50:43.610.4 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 0 packet filter result is permit.
+
+
+答复：
+
+第一个路由：
+配置的路由b::8   128
+           0000 0000 0000 1011 ：0000 0000 0000 0000 :: 0000 0000 0000 0000 : 0000 0000 0000 1000
+
+rule 8     1::/8   
+           0000 0000 0000 0001 ：0000 0000 0000 0000 :: 0000 0000 0000 0000 : 0000 0000 0000 0000
+   
+
+只看前8位的
+
+所以配置的路由为：0000 0000 0000 0000 ：0000 0000 0000 0000 :: 0000 0000 0000 0000 : 0000 0000 0000 0000
+rule中过滤的路由为：0000 0000 0000 0000 ：0000 0000 0000 0000 :: 0000 0000 0000 0000 : 0000 0000 0000 0000
+
+
+都是0 两个路由值相等 所一第一条路由就被rule8 permit了
+
+第二个路由
+2:: 8 n 0
+0000 0000 0000 0010 ：0000 0000 0000 0000 :: 0000 0000 0000 0000 : 0000 0000 0000 0000
+掩码为8
+那么这条路由网段就是0啦
+
+这样ipos认为source地址被忽略掉
+acl6这边就直接匹配组下第一条rule
+
+BI3D02597中修改的问题，原来的错误现象：
+晕！先看看这个现象！
+[RTA-bgp-af-ipv6]dis th
+#
+ #
+ ipv6-family unicast
+  undo synchronization
+  filter-policy acl6-name global export
+  import-route static
+#
+return
+[RTA-bgp-af-ipv6]q
+[RTA-bgp]q
+[RTA]dis acl ipv name global
+
+Advanced IPv6 ACL global, 9 rules
+ rule 0 permit ipv6 source A::1/128
+ rule 1 permit ipv6 source A::2/128
+ rule 2 permit ipv6 source A::3/128
+ rule 3 permit ipv6 source A::4/128
+ rule 4 permit ipv6 source A::5/128
+ rule 5 permit ipv6 source A::10/128
+ rule 6 permit ipv6 source 10::/64
+ rule 7 permit ipv6 source 1::/64
+ rule 8 permit ipv6 source 1::/8
+[RTA]
+[RTA]ipv6 route-static  b::8 128 n 0
+[RTA]
+*May 25 2009 17:34:04.940.1 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 8 packet filter result is permit.
+[RTA]
+[RTA]ipv6 route-static 2:: 8 n 0
+[RTA]
+*May 25 2009 17:34:12.500.2 RTA ACL6/7/ACL6_NAME_PKT:Name ACL6 global rule 0 packet filter result is permit.
+[RTA]
+[RTA]bgp 1.1
+[RTA-bgp]ipv
+[RTA-bgp-af-ipv6]dis th
+#
+ #
+ ipv6-family unicast
+  undo synchronization
+  filter-policy acl6-name global export
+  import-route static
+#
+return
+[RTA-bgp-af-ipv6]f
+[RTA-bgp-af-ipv6]filter-policy 2000 ex
+[RTA-bgp-af-ipv6]
+*May 25 2009 17:34:27.440.2 RTA ACL6/7/ACL6_NUM_PKT:Number ACL6 2000 rule 8 packet filter result is permit.
+*May 25 2009 17:34:27.440.3 RTA ACL6/7/ACL6_NUM_PKT:Number ACL6 2000 rule 8 packet filter result is permit.
+[RTA-bgp-af-ipv6]
+[RTA-bgp-af-ipv6]q
+[RTA-bgp]
+[RTA-bgp]
+[RTA-bgp]q
+[RTA]
+[RTA]un ipv rou all
+Warning: This operation may lead to the deletion of all the public IPv6 static routes and their configurations. Continue? [Y/N]: y
+[RTA]
+[RTA]ipv6 route-static  b::8 128 n 0
+[RTA]
+*May 25 2009 17:34:49.960.4 RTA ACL6/7/ACL6_NUM_PKT:Number ACL6 2000 rule 8 packet filter result is permit.
+[RTA]
+[RTA]ipv6 route-static 2:: 8 n 0
+[RTA]
+*May 25 2009 17:34:56.910.4 RTA ACL6/7/ACL6_NUM_PKT:Number ACL6 2000 rule 8 packet filter result is permit.
+[RTA]
+[RTA]dis acl ipv 2000----和name ACL那个一样的配置
+
+Basic IPv6 ACL 2000, 9 rules
+ rule 0 permit source A::1/128
+ rule 1 permit source A::2/128
+ rule 2 permit source A::3/128
+ rule 3 permit source A::4/128
+ rule 4 permit source A::5/128
+ rule 5 permit source A::10/128
+ rule 6 permit source 10::/64
+ rule 7 permit source 1::/64
+ rule 8 permit source 1::/8
+[RTA]           
+
+
